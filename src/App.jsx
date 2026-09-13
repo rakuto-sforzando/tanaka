@@ -4,6 +4,9 @@ import { REACTIONS, VOICES, shuffle } from './data'
 import SwipeCard, { CORNER_VECTOR } from './components/SwipeCard'
 import Result from './components/Result'
 
+const HINT_KEY = 'ftp-tanaka-hint-seen'
+const isTouch = matchMedia('(pointer: coarse)').matches
+
 const flyOut = {
   exit: (corner) => {
     const [dx, dy] = CORNER_VECTOR[corner] ?? [0, -1]
@@ -11,41 +14,63 @@ const flyOut = {
   },
 }
 
+function readHint() {
+  try { return !localStorage.getItem(HINT_KEY) } catch { return true }
+}
+
 export default function App() {
   const [deck, setDeck] = useState(() => shuffle(VOICES))
   const [index, setIndex] = useState(0)
-  const [counts, setCounts] = useState({})
+  const [history, setHistory] = useState([]) // 取り消し用: 直前の反応
   const [hover, setHover] = useState(null)
   const [lastCorner, setLastCorner] = useState('tr')
   const [wipe, setWipe] = useState(0)
+  const [showHint, setShowHint] = useState(readHint)
+  const [status, setStatus] = useState('')
 
   const finished = index >= deck.length
+  const counts = history.reduce((c, h) => ({ ...c, [h.id]: (c[h.id] ?? 0) + 1 }), {})
+
+  function dismissHint() {
+    if (!showHint) return
+    setShowHint(false)
+    try { localStorage.setItem(HINT_KEY, '1') } catch { /* 保存できなくても進める */ }
+  }
 
   function commit(corner) {
     const r = REACTIONS.find((x) => x.corner === corner)
+    dismissHint()
     setLastCorner(corner)
     setHover(corner)
-    setCounts((c) => ({ ...c, [r.id]: (c[r.id] ?? 0) + 1 }))
+    setHistory((h) => [...h, { id: r.id, label: r.label }])
+    setStatus(`${r.label} と答えました`)
     setTimeout(() => setHover(null), 250)
     if (index + 1 >= deck.length) setWipe((w) => w + 1)
     setIndex((i) => i + 1)
+  }
+
+  function undo() {
+    if (history.length === 0) return
+    setHistory((h) => h.slice(0, -1))
+    setIndex((i) => i - 1)
+    setStatus('1枚戻しました')
   }
 
   function restart() {
     setWipe((w) => w + 1)
     setDeck(shuffle(VOICES))
     setIndex(0)
-    setCounts({})
+    setHistory([])
+    setStatus('')
   }
 
   useEffect(() => {
     if (finished) return
     function onKey(e) {
+      if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return
       const r = REACTIONS.find((x) => x.key === e.key)
-      if (r) {
-        e.preventDefault()
-        commit(r.corner)
-      }
+      if (r) { e.preventDefault(); commit(r.corner) }
+      if (e.key === 'Backspace' || e.key === 'z') { e.preventDefault(); undo() }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -54,8 +79,10 @@ export default function App() {
   return (
     <main className="phone">
       {wipe > 0 && <div className="wipe" key={wipe} aria-hidden="true" />}
+      <p className="sr-only" aria-live="polite">{status}</p>
+
       {finished ? (
-        <Result counts={counts} onRestart={restart} />
+        <Result counts={counts} onRestart={restart} onBack={undo} />
       ) : (
         <div className="deck">
           {REACTIONS.map((r) => (
@@ -68,14 +95,30 @@ export default function App() {
             >
               <span>{r.label}</span>
               <span className="corner__emoji">{r.emoji}</span>
+              {!isTouch && <kbd className="corner__key" aria-hidden="true">{{ ArrowLeft: '←', ArrowUp: '↑', ArrowDown: '↓', ArrowRight: '→' }[r.key]}</kbd>}
             </button>
           ))}
+
           <AnimatePresence custom={lastCorner}>
             <motion.div key={deck[index].id} custom={lastCorner} variants={flyOut} exit="exit" initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1, transition: { type: 'spring', stiffness: 380, damping: 24 } }} className="card-slot">
-              <SwipeCard voice={deck[index]} onHover={setHover} onCommit={commit} />
+              <SwipeCard voice={deck[index]} onHover={(c) => { if (c) dismissHint(); setHover(c) }} onCommit={commit} />
             </motion.div>
           </AnimatePresence>
-          <div className="deck__count" aria-live="polite">{index + 1}/{deck.length}</div>
+
+          {showHint && (
+            <div className="hint" role="note">
+              <span className="hint__arrow" aria-hidden="true">↖ ↗<br />↙ ↘</span>
+              カードを四隅へ動かすか、角のボタンで答えます
+              <button className="hint__close" onClick={dismissHint} aria-label="ヒントを閉じる">×</button>
+            </div>
+          )}
+
+          <div className="progress" aria-label={`${index + 1}枚目 / ${deck.length}枚`}>
+            {deck.map((v, i) => <i key={v.id} className={i < index ? 'is-done' : i === index ? 'is-now' : ''} />)}
+          </div>
+          <button className="undo" onClick={undo} disabled={history.length === 0} aria-label="ひとつ前のカードに戻る">
+            ↩ 戻る{history.length > 0 && <small>{history.at(-1).label}</small>}
+          </button>
         </div>
       )}
     </main>
