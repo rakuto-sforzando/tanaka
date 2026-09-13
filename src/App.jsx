@@ -7,11 +7,17 @@ import Result from './components/Result'
 const HINT_KEY = 'ftp-tanaka-hint-seen'
 const isTouch = matchMedia('(pointer: coarse)').matches
 
-const flyOut = {
-  exit: (corner) => {
-    const [dx, dy] = CORNER_VECTOR[corner] ?? [0, -1]
-    return { x: dx * 600, y: dy * 500, rotate: dx * 30, opacity: 0, transition: { duration: 0.45, ease: [0.7, 0.01, 0.23, 1] } }
-  },
+// 進むときは答えた隅へ飛んでいき、戻るときは飛んでいった隅から元の位置へ帰ってくる。
+const fly = (corner) => {
+  const [dx, dy] = CORNER_VECTOR[corner] ?? [0, -1]
+  return { x: dx * 600, y: dy * 500, rotate: dx * 30, opacity: 0 }
+}
+const cardMotion = {
+  initial: ({ corner, back }) => (back ? fly(corner) : { scale: 0.9, opacity: 0, x: 0, y: 0, rotate: 0 }),
+  animate: ({ back }) => ({ x: 0, y: 0, rotate: 0, scale: 1, opacity: 1, transition: back ? { duration: 0.45, ease: [0.7, 0.01, 0.23, 1] } : { type: 'spring', stiffness: 380, damping: 24 } }),
+  exit: ({ corner, back }) => (back
+    ? { scale: 0.9, opacity: 0, transition: { duration: 0.2 } }
+    : { ...fly(corner), transition: { duration: 0.45, ease: [0.7, 0.01, 0.23, 1] } }),
 }
 
 function readHint() {
@@ -23,7 +29,7 @@ export default function App() {
   const [index, setIndex] = useState(0)
   const [history, setHistory] = useState([]) // 取り消し用: 直前の反応
   const [hover, setHover] = useState(null)
-  const [lastCorner, setLastCorner] = useState('tr')
+  const [motionInfo, setMotionInfo] = useState({ corner: 'tr', back: false })
   const [wipe, setWipe] = useState(0)
   const [showHint, setShowHint] = useState(readHint)
   const [status, setStatus] = useState('')
@@ -40,9 +46,9 @@ export default function App() {
   function commit(corner) {
     const r = REACTIONS.find((x) => x.corner === corner)
     dismissHint()
-    setLastCorner(corner)
+    setMotionInfo({ corner, back: false })
     setHover(corner)
-    setHistory((h) => [...h, { id: r.id, label: r.label }])
+    setHistory((h) => [...h, { id: r.id, label: r.label, corner }])
     setStatus(`${r.label} と答えました`)
     setTimeout(() => setHover(null), 250)
     if (index + 1 >= deck.length) setWipe((w) => w + 1)
@@ -51,6 +57,7 @@ export default function App() {
 
   function undo() {
     if (history.length === 0) return
+    setMotionInfo({ corner: history.at(-1).corner, back: true })
     setHistory((h) => h.slice(0, -1))
     setIndex((i) => i - 1)
     setStatus('1枚戻しました')
@@ -99,8 +106,8 @@ export default function App() {
             </button>
           ))}
 
-          <AnimatePresence custom={lastCorner}>
-            <motion.div key={deck[index].id} custom={lastCorner} variants={flyOut} exit="exit" initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1, transition: { type: 'spring', stiffness: 380, damping: 24 } }} className="card-slot">
+          <AnimatePresence custom={motionInfo}>
+            <motion.div key={deck[index].id} custom={motionInfo} variants={cardMotion} initial="initial" animate="animate" exit="exit" className="card-slot">
               <SwipeCard voice={deck[index]} onHover={(c) => { if (c) dismissHint(); setHover(c) }} onCommit={commit} />
             </motion.div>
           </AnimatePresence>
