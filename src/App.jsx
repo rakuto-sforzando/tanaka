@@ -54,11 +54,6 @@ export default function App() {
   return (
     <main className="phone">
       {wipe > 0 && <div className="wipe" key={wipe} aria-hidden="true" />}
-      <div className="status">
-        <span>9:41</span>
-        <span aria-hidden="true">●●● ◔ ▮</span>
-      </div>
-
       {finished ? (
         <Result counts={counts} onRestart={restart} />
       ) : (
@@ -83,8 +78,6 @@ export default function App() {
           <div className="deck__count" aria-live="polite">{index + 1}/{deck.length}</div>
         </div>
       )}
-
-      <div className="footer"><div className="home" /></div>
     </main>
   )
 }
